@@ -2,12 +2,12 @@
 
 You are deploying **Fozilxon Studio** — one Node process that runs a Telegram bot and a
 website together, backed by a single SQLite file. Target: Ubuntu/Debian VPS serving
-`fozilxon.uz` over HTTPS.
+`pro.javohirhm.uz` over HTTPS.
 
 **Success criteria — all four must be true when you finish:**
 
 1. `systemctl is-active fozilxon` → `active`, and it survives `reboot`.
-2. `curl -sI https://fozilxon.uz/` → `302` to `/login`; `curl -s https://fozilxon.uz/login` → HTML.
+2. `curl -sI https://pro.javohirhm.uz/` → `302` to `/login`; `curl -s https://pro.javohirhm.uz/login` → HTML.
 3. Posting the right password to `/api/login` returns `{"ok":true}`; a wrong one returns 401.
 4. The bot answers `/start` in Telegram.
 
@@ -22,8 +22,9 @@ website together, backed by a single SQLite file. Target: Ubuntu/Debian VPS serv
 Generate `SESSION_SECRET` yourself (`openssl rand -hex 32`). Never print these values back
 in full, never commit them, never put them in a git-tracked file.
 
-Also confirm before you start: **`fozilxon.uz` (and `www`) must already point to this
-server's IP** — certbot in step 6 fails otherwise. Check with `dig +short fozilxon.uz`.
+Also confirm before you start: **`pro.javohirhm.uz` must already point to this server's
+IP** (a single A record; there is no `www` for it) — certbot in step 6 fails otherwise.
+Check with `dig +short pro.javohirhm.uz` and compare to `curl -s ifconfig.me`.
 
 ## 1. Node 22.5 or newer
 
@@ -45,8 +46,8 @@ sudo apt-get install -y nodejs
 
 ```bash
 sudo mkdir -p /var/www
-sudo git clone <REPO_URL> /var/www/fozilxon.uz
-cd /var/www/fozilxon.uz
+sudo git clone https://github.com/javohirhm/fozilxon-studio.git /var/www/fozilxon-studio
+cd /var/www/fozilxon-studio
 sudo npm install --omit=dev
 ```
 
@@ -64,7 +65,7 @@ Fill in `BOT_TOKEN`, `SITE_PASSWORD`, `SESSION_SECRET`, `BOT_OWNER_ID` (may stay
 now), and keep:
 
 ```
-SITE_URL=https://fozilxon.uz
+SITE_URL=https://pro.javohirhm.uz
 PORT=3000
 NODE_ENV=production
 DB_PATH=data/studio.db
@@ -73,8 +74,8 @@ DB_PATH=data/studio.db
 Lock it down — it holds the password and the cookie secret:
 
 ```bash
-sudo chown -R www-data:www-data /var/www/fozilxon.uz
-sudo chmod 600 /var/www/fozilxon.uz/.env
+sudo chown -R www-data:www-data /var/www/fozilxon-studio
+sudo chmod 600 /var/www/fozilxon-studio/.env
 ```
 
 `data/` must stay writable by `www-data`; SQLite also writes `studio.db-wal` and
@@ -110,13 +111,13 @@ answers nobody.
 
 ```bash
 sudo apt-get install -y nginx
-sudo cp nginx.conf.example /etc/nginx/sites-available/fozilxon.uz
-sudo ln -sf /etc/nginx/sites-available/fozilxon.uz /etc/nginx/sites-enabled/
+sudo cp nginx.conf.example /etc/nginx/sites-available/pro.javohirhm.uz
+sudo ln -sf /etc/nginx/sites-available/pro.javohirhm.uz /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 
 sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d fozilxon.uz -d www.fozilxon.uz --redirect
+sudo certbot --nginx -d pro.javohirhm.uz --redirect
 ```
 
 If a firewall is on: `sudo ufw allow 'Nginx Full'`. Port 3000 must NOT be open to the world —
@@ -125,8 +126,8 @@ nginx proxies to it on localhost.
 Verify:
 
 ```bash
-curl -sI https://fozilxon.uz/ | head -1
-curl -s -X POST https://fozilxon.uz/api/login -H 'content-type: application/json' \
+curl -sI https://pro.javohirhm.uz/ | head -1
+curl -s -X POST https://pro.javohirhm.uz/api/login -H 'content-type: application/json' \
   -d '{"password":"WRONG"}'            # {"error":"Parol xato"}
 ```
 
@@ -140,7 +141,7 @@ HTTPS** — don't test the real password against plain `http://`.
 
 Tell them:
 
-- the site is live at `https://fozilxon.uz` and takes only the password,
+- the site is live at `https://pro.javohirhm.uz` and takes only the password,
 - to open the bot and press `/start`,
 - to add the bot to the assistants' group and send `/guruh` there once, so assistants can
   report their work with `/ishladim` (BotFather privacy mode stays ON — the bot only reads
@@ -149,7 +150,7 @@ Tell them:
 ## Updating later
 
 ```bash
-cd /var/www/fozilxon.uz
+cd /var/www/fozilxon-studio
 sudo -u www-data git pull
 sudo npm install --omit=dev
 sudo systemctl restart fozilxon
@@ -163,7 +164,7 @@ The schema migrates itself on start (`CREATE TABLE IF NOT EXISTS`, plus an `ALTE
 Everything lives in `data/studio.db`. A daily copy is enough:
 
 ```bash
-sudo sqlite3 /var/www/fozilxon.uz/data/studio.db ".backup '/root/fozilxon-$(date +%F).db'"
+sudo sqlite3 /var/www/fozilxon-studio/data/studio.db ".backup '/root/fozilxon-$(date +%F).db'"
 ```
 
 (or stop the service and copy `studio.db`, `-wal`, `-shm` together). Set up a cron job if the

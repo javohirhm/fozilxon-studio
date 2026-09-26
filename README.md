@@ -80,15 +80,15 @@ grid, filter by project), Yordamchilar (earnings, monthly lateness with day chip
 ## Deploy (one VPS)
 
 ```bash
-git clone <repo> /var/www/fozilxon.uz && cd /var/www/fozilxon.uz
+git clone <repo> /var/www/fozilxon-studio && cd /var/www/fozilxon-studio
 npm install --omit=dev
 cp .env.example .env && nano .env        # NODE_ENV=production
 sudo cp fozilxon.service /etc/systemd/system/
 sudo systemctl enable --now fozilxon
-sudo cp nginx.conf.example /etc/nginx/sites-available/fozilxon.uz
-sudo ln -s /etc/nginx/sites-available/fozilxon.uz /etc/nginx/sites-enabled/
+sudo cp nginx.conf.example /etc/nginx/sites-available/pro.javohirhm.uz
+sudo ln -s /etc/nginx/sites-available/pro.javohirhm.uz /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d fozilxon.uz -d www.fozilxon.uz
+sudo certbot --nginx -d pro.javohirhm.uz
 ```
 
 Node **22.5+** is required (`node:sqlite` is built in — no native modules to compile).

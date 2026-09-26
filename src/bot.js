@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { money, num, dateUz, monthName, todayISO, parseDate, parseMoney } from './format.js';
 
 const OWNER_ID = process.env.BOT_OWNER_ID ? Number(process.env.BOT_OWNER_ID) : null;
-const SITE_URL = process.env.SITE_URL || 'https://fozilxon.uz';
+const SITE_URL = process.env.SITE_URL || 'https://pro.javohirhm.uz';
 
 export function createBot(token) {
   const bot = new Bot(token);

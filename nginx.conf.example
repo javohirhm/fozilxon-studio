@@ -1,6 +1,6 @@
-# /etc/nginx/sites-available/fozilxon.uz  (then: certbot --nginx -d fozilxon.uz)
+# /etc/nginx/sites-available/pro.javohirhm.uz  (then: certbot --nginx -d pro.javohirhm.uz)
 server {
-    server_name fozilxon.uz www.fozilxon.uz;
+    server_name pro.javohirhm.uz;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
