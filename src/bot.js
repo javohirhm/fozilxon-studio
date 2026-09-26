@@ -39,9 +39,9 @@ export function createBot(token) {
   /* ---------- main menu ---------- */
   const mainMenu = new Keyboard()
     .text('📁 Loyihalar').text('➕ Yangi loyiha').row()
-    .text('👥 Yordamchilar').text('⏰ Kechikishlar').row()
+    .text('👥 Yordamchilar').text('📥 Arizalar').row()
+    .text('⏰ Kechikishlar').text('⚠️ Qo\'pol xatolar').row()
     .text('📅 Kalendar').text('📊 Hisobot').row()
-    .text('📥 Arizalar').row()
     .resized();
 
   /** Day buttons — the group has no typing (Telegram privacy mode), so dates are taps. */
@@ -133,7 +133,7 @@ export function createBot(token) {
       `Arenda: ${money(s.rent)}\n`;
     if (as.length) {
       text += `\n<b>Yordamchilar:</b>`;
-      for (const a of as) text += `\n• ${esc(a.name)} — ${money(a.fee)}`;
+      for (const a of as) text += `\n• ${esc(a.name)} — ${money(a.fee)}${a.solo ? ' 👤×2' : ''}`;
     }
     text += `\n\nSof: <b>${money(s.amount - s.rent - s.fees)}</b>`;
     const kb = new InlineKeyboard()
@@ -238,6 +238,10 @@ export function createBot(token) {
         text += `\n• ${monthName(m - 1)} ${y}: <b>${money(mo.income)}</b> (${mo.shootings} съёмка)`;
       }
     }
+    const ym = todayISO().slice(0, 7);
+    const lateN = db.marksByMonth('late', ym).reduce((n, r) => n + r.count, 0);
+    const missN = db.marksByMonth('mistake', ym).reduce((n, r) => n + r.count, 0);
+    text += `\n\n<b>Shu oy intizomi:</b>\n⏰ Kechikish: <b>${lateN}</b> · ⚠️ Qo'pol xato: <b>${missN}</b>`;
     if (assistants.length) {
       text += '\n\n<b>Yordamchilar KPI:</b>';
       for (const a of assistants) {
@@ -261,12 +265,13 @@ export function createBot(token) {
     for (const c of rows) {
       text += `\n\n👤 <b>${esc(c.assistant_name)}</b>\n🎬 ${esc(c.project_name)}\n📅 ${dateUz(c.date)}` +
         `\n💵 Stavkasi: ${money(c.assistant_rate)}`;
-      kb.text(`✅ ${c.assistant_name} · ${dateUz(c.date, false)}`, `cok:${c.id}`).text('❌', `cno:${c.id}`).row();
+      kb.text(`✅ ${c.assistant_name} · ${dateUz(c.date, false)}`, `cok:${c.id}`)
+        .text('👤 ×2', `cok2:${c.id}`).text('❌', `cno:${c.id}`).row();
     }
     return { text, kb };
   }
 
-  async function approveClaim(ctx, claimId) {
+  async function approveClaim(ctx, claimId, solo = false) {
     const c = db.getClaim(claimId);
     if (!c || c.status !== 'pending') return edit(ctx, claimsView());
     let shooting = db.shootingOn(c.project_id, c.date);
@@ -278,7 +283,8 @@ export function createBot(token) {
       shooting = db.getShooting(id);
       created = true;
     }
-    db.attachAssistant(shooting.id, c.assistant_id, c.assistant_rate);
+    const fee = c.assistant_rate * (solo ? 2 : 1);
+    db.attachAssistant(shooting.id, c.assistant_id, fee, solo);
     db.setClaimStatus(c.id, 'approved', shooting.id);
 
     const kb = new InlineKeyboard();
@@ -286,7 +292,7 @@ export function createBot(token) {
     kb.text('📥 Arizalar', 'claims').text('🎬 Съёмка', `sh:${shooting.id}`);
     await edit(ctx, {
       text: `✅ <b>Tasdiqlandi</b>\n\n${esc(c.assistant_name)} — ${esc(c.project_name)}, ${dateUz(c.date)}\n` +
-        `To'lovi: ${money(c.assistant_rate)}\n` +
+        `To'lovi: ${money(fee)}${solo ? ' (👤 o\'zi bordi ×2)' : ''}\n` +
         (created ? `\n⚠️ Bu kuni съёмка yozilmagan edi — yangisi ochildi, <b>summasi 0</b>. Kiriting 👇` : ''),
       kb,
     });
@@ -298,50 +304,57 @@ export function createBot(token) {
     if (id) bot.api.sendMessage(id, text, { parse_mode: 'HTML' }).catch(() => {});
   }
 
-  /* ---------- lateness (kechikishlar) ---------- */
-  function latenessView(ym) {
-    const rows = db.latenessByMonth(ym);
+  /* ---------- discipline marks: kechikish + qo'pol xato ---------- */
+  const MARK = {
+    late: { icon: '⏰', title: '⏰ Kechikishlar', one: 'Kechikkan', ask: 'kechikdi', word: 'kechikish' },
+    mistake: { icon: '⚠️', title: '⚠️ Qo\'pol xatolar', one: 'Qo\'pol xato', ask: 'xato qildi', word: 'qo\'pol xato' },
+  };
+
+  function marksView(kind, ym) {
+    const m = MARK[kind];
+    const rows = db.marksByMonth(kind, ym);
     const total = rows.reduce((n, r) => n + r.count, 0);
-    let text = `<b>⏰ Kechikishlar — ${monthName(Number(ym.slice(5, 7)) - 1)} ${ym.slice(0, 4)}</b>\n\n` +
+    let text = `<b>${m.title} — ${monthName(Number(ym.slice(5, 7)) - 1)} ${ym.slice(0, 4)}</b>\n\n` +
       `Jami: <b>${total}</b> marta`;
     for (const r of rows.filter((x) => x.count)) {
       text += `\n\n👤 <b>${esc(r.name)}</b> — <b>${r.count}</b> marta` +
         `\n   ${r.dates.split(',').map((d) => dateUz(d, false)).join(', ')}`;
     }
-    if (!total) text += `\n\nBu oyda kechikish yo'q.`;
+    if (!total) text += `\n\nBu oyda ${m.word} yo'q.`;
     const kb = new InlineKeyboard()
-      .text('➕ Kechikish qo\'shish', `lnew:${ym}`).row()
-      .text('◀️', `lmon:${shiftMonth(ym, -1)}`)
+      .text(`➕ ${m.word[0].toUpperCase()}${m.word.slice(1)} qo'shish`, `mnew:${kind}:${ym}`).row()
+      .text('◀️', `mmon:${kind}:${shiftMonth(ym, -1)}`)
       .text(`${monthName(Number(ym.slice(5, 7)) - 1)}`, 'noop')
-      .text('▶️', `lmon:${shiftMonth(ym, 1)}`).row();
-    for (const r of rows.filter((x) => x.count)) kb.text(`👤 ${r.name} (${r.count})`, `lp:${r.id}:${ym}`).row();
+      .text('▶️', `mmon:${kind}:${shiftMonth(ym, 1)}`).row();
+    for (const r of rows.filter((x) => x.count)) kb.text(`👤 ${r.name} (${r.count})`, `mp:${kind}:${r.id}:${ym}`).row();
     return { text, kb };
   }
 
-  function latenessPersonView(assistantId, ym) {
+  function markPersonView(kind, assistantId, ym) {
+    const m = MARK[kind];
     const a = db.getAssistant(assistantId);
-    const rows = db.latenessOf(assistantId, ym);
-    let text = `<b>⏰ ${esc(a.name)} — ${monthName(Number(ym.slice(5, 7)) - 1)} ${ym.slice(0, 4)}</b>\n\n` +
-      `Kechikkan: <b>${rows.length}</b> marta`;
+    const rows = db.marksOf(kind, assistantId, ym);
+    let text = `<b>${m.icon} ${esc(a.name)} — ${monthName(Number(ym.slice(5, 7)) - 1)} ${ym.slice(0, 4)}</b>\n\n` +
+      `${m.one}: <b>${rows.length}</b> marta`;
     if (rows.length) text += `\n\nO'chirish uchun sanani bosing:`;
-    const kb = new InlineKeyboard().text('➕ Yana kechikish', `lpick:${assistantId}:${ym}`).row();
-    for (const r of rows) kb.text(`❌ ${dateUz(r.date, false)}`, `ldel:${r.id}:${assistantId}:${ym}`).row();
-    kb.text('⬅️ Kechikishlar', `lmon:${ym}`);
+    const kb = new InlineKeyboard().text(`➕ Yana ${m.word}`, `mpick:${kind}:${assistantId}:${ym}`).row();
+    for (const r of rows) kb.text(`❌ ${dateUz(r.date, false)}`, `mdel:${kind}:${r.id}:${assistantId}:${ym}`).row();
+    kb.text(`⬅️ ${m.title}`, `mmon:${kind}:${ym}`);
     return { text, kb };
   }
 
-  function latenessPickPersonView(ym) {
+  function markPickPersonView(kind, ym) {
     const kb = new InlineKeyboard();
-    for (const a of db.listAssistants(true)) kb.text(`👤 ${a.name}`, `lpick:${a.id}:${ym}`).row();
-    kb.text('⬅️ Orqaga', `lmon:${ym}`);
-    return { text: '<b>⏰ Kim kechikdi?</b>', kb };
+    for (const a of db.listAssistants(true)) kb.text(`👤 ${a.name}`, `mpick:${kind}:${a.id}:${ym}`).row();
+    kb.text('⬅️ Orqaga', `mmon:${kind}:${ym}`);
+    return { text: `<b>${MARK[kind].title}</b>\n\nKim ${MARK[kind].ask}?`, kb };
   }
 
-  function latenessPickDateView(assistantId, ym) {
+  function markPickDateView(kind, assistantId, ym) {
     const a = db.getAssistant(assistantId);
-    const kb = dayButtons(`ladd:${assistantId}`);
-    kb.text('📅 Boshqa sana', `ldate:${assistantId}`).row().text('⬅️ Orqaga', `lmon:${ym}`);
-    return { text: `<b>${esc(a.name)}</b> qaysi kuni kechikdi?`, kb };
+    const kb = dayButtons(`madd:${kind}:${assistantId}`);
+    kb.text('📅 Boshqa sana', `mdate:${kind}:${assistantId}`).row().text('⬅️ Orqaga', `mmon:${kind}:${ym}`);
+    return { text: `<b>${esc(a.name)}</b> qaysi kuni ${MARK[kind].ask}?`, kb };
   }
 
   /* ---------- wizard: add shooting ---------- */
@@ -407,13 +420,17 @@ export function createBot(token) {
     if (!a) return finishShooting(ctx);
     const kb = new InlineKeyboard()
       .text(`Standart: ${num(a.rate)}`, 'wfee:def').row()
+      .text(`👤 O'zi bordi ×2: ${num(a.rate * 2)}`, 'wfee:solo').row()
       .text('❌ Bekor qilish', 'cancel');
-    await ctx.reply(`<b>${esc(a.name)}</b> uchun to'lov qancha? (${wiz.feeIdx + 1}/${wiz.selected.length})`,
+    await ctx.reply(
+      `<b>${esc(a.name)}</b> uchun to'lov qancha? (${wiz.feeIdx + 1}/${wiz.selected.length})\n` +
+      `<i>O'zi borgan bo'lsa — ikkilangan stavka.</i>`,
       { parse_mode: 'HTML', reply_markup: kb });
   }
 
-  async function setFee(ctx, fee) {
+  async function setFee(ctx, fee, solo = false) {
     wiz.selected[wiz.feeIdx].fee = fee;
+    wiz.selected[wiz.feeIdx].solo = solo;
     wiz.feeIdx += 1;
     if (wiz.feeIdx < wiz.selected.length) return askFee(ctx);
     return finishShooting(ctx);
@@ -428,7 +445,7 @@ export function createBot(token) {
       amount: data.amount || 0,
       rent: data.rent || 0,
       paid: data.paid,
-      assistants: selected.map((a) => ({ id: a.id, fee: a.fee ?? a.rate })),
+      assistants: selected.map((a) => ({ id: a.id, fee: a.fee ?? a.rate, solo: a.solo })),
     });
     clearWiz();
     const s = db.getShooting(id);
@@ -514,7 +531,8 @@ export function createBot(token) {
   bot.hears('📁 Loyihalar', (ctx) => { clearWiz(); return send(ctx, projectsView()); });
   bot.hears('👥 Yordamchilar', (ctx) => { clearWiz(); return send(ctx, assistantsView()); });
   bot.hears('📊 Hisobot', (ctx) => { clearWiz(); return send(ctx, reportView()); });
-  bot.hears('⏰ Kechikishlar', (ctx) => { clearWiz(); return send(ctx, latenessView(todayISO().slice(0, 7))); });
+  bot.hears('⏰ Kechikishlar', (ctx) => { clearWiz(); return send(ctx, marksView('late', todayISO().slice(0, 7))); });
+  bot.hears('⚠️ Qo\'pol xatolar', (ctx) => { clearWiz(); return send(ctx, marksView('mistake', todayISO().slice(0, 7))); });
   bot.hears('📥 Arizalar', (ctx) => { clearWiz(); return send(ctx, claimsView()); });
   bot.hears('📅 Kalendar', (ctx) => { clearWiz(); return send(ctx, calendarView('all', todayISO().slice(0, 7))); });
   bot.hears('➕ Yangi loyiha', async (ctx) => {
@@ -565,11 +583,15 @@ export function createBot(token) {
         });
         return bot.api.sendMessage(OWNER_ID,
           `📥 <b>Yangi ariza</b>\n\n👤 ${esc(me.name)}\n🎬 ${esc(p.name)}\n📅 ${dateUz(date)}\n💵 Stavkasi: ${money(me.rate)}`,
-          { parse_mode: 'HTML', reply_markup: new InlineKeyboard().text('✅ Tasdiqlash', `cok:${claimId}`).text('❌ Rad etish', `cno:${claimId}`) }
+          { parse_mode: 'HTML', reply_markup: new InlineKeyboard()
+            .text('✅ Tasdiqlash', `cok:${claimId}`).row()
+            .text(`👤 O'zi bordi ×2 (${num(me.rate * 2)})`, `cok2:${claimId}`).row()
+            .text('❌ Rad etish', `cno:${claimId}`) }
         ).catch(() => {});
       }
       case 'claims': return edit(ctx, claimsView());
       case 'cok': return approveClaim(ctx, id);
+      case 'cok2': return approveClaim(ctx, id, true);
       case 'cno': {
         const c = db.getClaim(id);
         if (c?.status === 'pending') db.setClaimStatus(id, 'rejected');
@@ -592,22 +614,22 @@ export function createBot(token) {
         if (!wiz) return;
         return saveMoney(ctx, rest[0] === '1');
 
-      /* --- lateness --- */
-      case 'lmon': return edit(ctx, latenessView(rest[0]));
-      case 'lnew': return edit(ctx, latenessPickPersonView(rest[0]));
-      case 'lp': return edit(ctx, latenessPersonView(id, rest[1]));
-      case 'lpick': return edit(ctx, latenessPickDateView(id, rest[1]));
-      case 'ladd': {
-        const date = todayISO(-Number(rest[1]));
-        db.addLateness(id, date);
-        return edit(ctx, latenessPersonView(id, date.slice(0, 7)));
+      /* --- discipline marks (kind: late | mistake) --- */
+      case 'mmon': return edit(ctx, marksView(rest[0], rest[1]));
+      case 'mnew': return edit(ctx, markPickPersonView(rest[0], rest[1]));
+      case 'mp': return edit(ctx, markPersonView(rest[0], Number(rest[1]), rest[2]));
+      case 'mpick': return edit(ctx, markPickDateView(rest[0], Number(rest[1]), rest[2]));
+      case 'madd': {
+        const date = todayISO(-Number(rest[2]));
+        db.addMark(rest[0], Number(rest[1]), date);
+        return edit(ctx, markPersonView(rest[0], Number(rest[1]), date.slice(0, 7)));
       }
-      case 'ldate':
-        wiz = { flow: 'lateness', step: 'date', assistantId: id };
-        return ctx.reply(`Kechikkan sanani yozing, masalan <code>24.09.2026</code>`, { parse_mode: 'HTML', reply_markup: cancelKb() });
-      case 'ldel':
-        db.deleteLateness(id);
-        return edit(ctx, latenessPersonView(Number(rest[1]), rest[2]));
+      case 'mdate':
+        wiz = { flow: 'mark', step: 'date', kind: rest[0], assistantId: Number(rest[1]) };
+        return ctx.reply(`Sanani yozing, masalan <code>24.09.2026</code>`, { parse_mode: 'HTML', reply_markup: cancelKb() });
+      case 'mdel':
+        db.deleteMark(rest[0], Number(rest[1]));
+        return edit(ctx, markPersonView(rest[0], Number(rest[2]), rest[3]));
       case 'cancel': clearWiz(); return edit(ctx, { text: 'Bekor qilindi.', kb: new InlineKeyboard().text('📁 Loyihalar', 'projects') });
       case 'projects': return edit(ctx, projectsView());
       case 'assistants': return edit(ctx, assistantsView());
@@ -688,9 +710,11 @@ export function createBot(token) {
       case 'wadone':
         if (!wiz) return;
         return wiz.selected.length ? askFee(ctx) : finishShooting(ctx);
-      case 'wfee':
+      case 'wfee': {
         if (!wiz) return;
-        return setFee(ctx, wiz.selected[wiz.feeIdx].rate);
+        const a = wiz.selected[wiz.feeIdx];
+        return rest[0] === 'solo' ? setFee(ctx, a.rate * 2, true) : setFee(ctx, a.rate);
+      }
     }
   });
 
@@ -730,13 +754,13 @@ export function createBot(token) {
       return send(ctx, assistantView(id));
     }
 
-    if (wiz.flow === 'lateness') {
+    if (wiz.flow === 'mark') {
       const d = parseDate(text);
       if (!d) return ctx.reply('Sanani shu ko\'rinishda yozing: <code>24.09.2026</code>', { parse_mode: 'HTML' });
-      db.addLateness(wiz.assistantId, d);
-      const id = wiz.assistantId;
+      db.addMark(wiz.kind, wiz.assistantId, d);
+      const { kind, assistantId } = wiz;
       clearWiz();
-      return send(ctx, latenessPersonView(id, d.slice(0, 7)));
+      return send(ctx, markPersonView(kind, assistantId, d.slice(0, 7)));
     }
 
     if (wiz.flow === 'money') {

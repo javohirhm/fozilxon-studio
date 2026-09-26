@@ -5,12 +5,12 @@ shootings, money and assistants. One Node process serves both.
 
 - **Bot (private, him)** — add projects, log each shooting (date, note, amount, rent,
   paid/unpaid, which assistants took part), manage assistants, approve assistant reports,
-  mark lateness, browse per-project and overall calendars.
+  mark lateness and gross mistakes, browse per-project and overall calendars.
 - **Bot (group, assistants)** — each assistant types `/ishladim` in the team group and taps
   project + day to report that they worked. It lands in his **📥 Arizalar** for approval.
 - **Site** — password-protected dashboard: totals, monthly income charts, project pages,
-  calendars, assistant KPI, monthly lateness, pending reports. Read-only; everything is
-  entered in the bot.
+  calendars, assistant KPI, monthly discipline (lateness + gross mistakes), pending reports.
+  Read-only; everything is entered in the bot.
 - **Storage** — one SQLite file (`data/studio.db`), no external services.
 - **UI language** — Uzbek. Currency — so'm.
 
@@ -41,16 +41,18 @@ The site works even without `BOT_TOKEN`; the bot simply doesn't start.
 
 ## Bot
 
-`/start` shows the menu: **📁 Loyihalar · ➕ Yangi loyiha · 👥 Yordamchilar · ⏰ Kechikishlar ·
-📅 Kalendar · 📊 Hisobot · 📥 Arizalar**. `/bekor` cancels a half-finished entry, `/menu` brings
-the menu back.
+`/start` shows the menu: **📁 Loyihalar · ➕ Yangi loyiha · 👥 Yordamchilar · 📥 Arizalar ·
+⏰ Kechikishlar · ⚠️ Qo'pol xatolar · 📅 Kalendar · 📊 Hisobot**. `/bekor` cancels a
+half-finished entry, `/menu` brings the menu back.
 
 Adding a shooting is a 6-step wizard: date (Bugun/Kecha/typed) → note → amount → rent →
-paid or not → which assistants (their default rate is offered, any number can be typed instead).
-Amounts accept `5 000 000`, `5mln`, `300ming`.
+paid or not → which assistants. For each one the fee step offers two buttons — **Standart**
+(his rate) or **👤 O'zi bordi ×2** (double, for when that assistant covered the shooting
+himself) — or any number can be typed instead. Amounts accept `5 000 000`, `5mln`, `300ming`.
 
-**⏰ Kechikishlar** — pick a person, pick a day (7 day buttons or a typed date), one tap = one
-lateness mark. The month view lists everyone with their count and dates; tap a date to remove it.
+**⏰ Kechikishlar** and **⚠️ Qo'pol xatolar** — pick a person, pick a day (7 day buttons or a
+typed date), one tap = one mark. Each month view lists everyone with their count and dates; tap
+a date to remove it. Both are plain counts, nothing is deducted from pay.
 
 In private chat only `BOT_OWNER_ID` is answered; anyone else is ignored.
 
@@ -64,9 +66,10 @@ In private chat only `BOT_OWNER_ID` is answered; anyone else is ignored.
    account for good → then they tap the project and the day.
 4. The report arrives in his bot with **✅ Tasdiqlash / ❌ Rad etish**, and also sits under
    **📥 Arizalar**.
-5. On approval: if a shooting already exists for that project and day, the assistant is
-   attached to it at their default rate. If none exists, one is created with **amount 0** and
-   the bot offers **💰 Summani kiritish** to fill in money, rent and paid/unpaid right away.
+5. Approval has two buttons: **✅ Tasdiqlash** (default rate) and **👤 O'zi bordi ×2** (double,
+   if he went alone). If a shooting already exists for that project and day, the assistant is
+   attached to it; if none exists, one is created with **amount 0** and the bot offers
+   **💰 Summani kiritish** to fill in money, rent and paid/unpaid right away.
 
 Duplicate reports (same person, project and day) are refused. Typing doesn't work in groups
 because of Telegram's privacy mode — that is why dates are buttons there.
@@ -75,7 +78,9 @@ because of Telegram's privacy mode — that is why dates are buttons there.
 
 `/login` → password → dashboard. Pages: Umumiy (totals, monthly chart, projects, pending
 reports, recent shootings), Loyihalar, Loyiha (own calendar + all shootings), Kalendar (month
-grid, filter by project), Yordamchilar (earnings, monthly lateness with day chips, KPI table).
+grid, filter by project), Yordamchilar (earnings, monthly discipline — lateness and gross
+mistakes side by side with day chips — and the KPI table). Assistants who went alone show as
+`Bekzod ×2` next to their shooting.
 
 ## Deploy (one VPS)
 
@@ -115,5 +120,8 @@ public/         index.html · login.html · app.js (router, charts, calendar) ·
   nothing else.
 - One Telegram account = one assistant. Linking a second name to the same account moves the
   link instead of duplicating it.
-- Lateness is a plain count per person per day (several marks on one day are allowed, e.g.
-  morning and after lunch).
+- Lateness and gross mistakes are plain counts per person per day (several marks on one day
+  are allowed, e.g. morning and after lunch).
+- **O'zi bordi ×2** stores the already-doubled fee on that shooting, so project net profit and
+  expense totals include it automatically. A fee typed by hand is used exactly as typed — the
+  ×2 applies to the default-rate button, not to a manual amount.

@@ -73,9 +73,9 @@ export function createServer() {
     });
   });
 
-  app.get('/api/lateness', (req, res) => {
+  app.get('/api/marks', (req, res) => {
     const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : new Date().toISOString().slice(0, 7);
-    res.json({ month, rows: db.latenessByMonth(month) });
+    res.json({ month, late: db.marksByMonth('late', month), mistakes: db.marksByMonth('mistake', month) });
   });
 
   app.get('/api/project/:id', (req, res) => {

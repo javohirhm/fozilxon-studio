@@ -54,6 +54,12 @@ CREATE TABLE IF NOT EXISTS lateness (
   date         TEXT    NOT NULL,
   created_at   TEXT    NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mistakes (
+  id           INTEGER PRIMARY KEY,
+  assistant_id INTEGER NOT NULL REFERENCES assistants(id) ON DELETE CASCADE,
+  date         TEXT    NOT NULL,
+  created_at   TEXT    NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -61,11 +67,16 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE INDEX IF NOT EXISTS idx_shootings_project ON shootings(project_id);
 CREATE INDEX IF NOT EXISTS idx_shootings_date    ON shootings(date);
 CREATE INDEX IF NOT EXISTS idx_lateness_date     ON lateness(date);
+CREATE INDEX IF NOT EXISTS idx_mistakes_date     ON mistakes(date);
 `);
 
 // Added after the first release: link an assistant to the Telegram account that reports for them.
 if (!db.prepare('PRAGMA table_info(assistants)').all().some((c) => c.name === 'tg_id')) {
   db.exec('ALTER TABLE assistants ADD COLUMN tg_id INTEGER');
+}
+// "O'zi bordi": the assistant covered the shooting alone, so his fee for it is doubled.
+if (!db.prepare('PRAGMA table_info(shooting_assistants)').all().some((c) => c.name === 'solo')) {
+  db.exec('ALTER TABLE shooting_assistants ADD COLUMN solo INTEGER NOT NULL DEFAULT 0');
 }
 
 const q = (sql) => db.prepare(sql);
@@ -136,8 +147,8 @@ export function createShooting({ projectId, date, note, amount, rent, paid, assi
   const id = q(
     'INSERT INTO shootings (project_id, date, note, amount, rent, paid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(projectId, date, note, amount, rent, paid ? 1 : 0, now()).lastInsertRowid;
-  const link = q('INSERT INTO shooting_assistants (shooting_id, assistant_id, fee) VALUES (?, ?, ?)');
-  for (const a of assistants) link.run(id, a.id, a.fee);
+  const link = q('INSERT INTO shooting_assistants (shooting_id, assistant_id, fee, solo) VALUES (?, ?, ?, ?)');
+  for (const a of assistants) link.run(id, a.id, a.fee, a.solo ? 1 : 0);
   return id;
 }
 
@@ -148,7 +159,8 @@ export const setShootingPaid = (id, paid) =>
 const SHOOTING_ROWS = `
   SELECT s.*, p.name AS project_name,
          COALESCE(f.fees, 0) AS fees,
-         (SELECT GROUP_CONCAT(a.name, ', ') FROM shooting_assistants sa
+         (SELECT GROUP_CONCAT(a.name || CASE WHEN sa.solo THEN ' ×2' ELSE '' END, ', ')
+            FROM shooting_assistants sa
             JOIN assistants a ON a.id = sa.assistant_id WHERE sa.shooting_id = s.id) AS assistant_names
     FROM shootings s
     JOIN projects p ON p.id = s.project_id
@@ -171,7 +183,7 @@ export const listShootings = ({ projectId = null, from = null, to = null, limit 
 export const getShooting = (id) => q(`${SHOOTING_ROWS} WHERE s.id = ?`).get(id);
 
 export const shootingAssistants = (id) =>
-  q(`SELECT a.id, a.name, sa.fee FROM shooting_assistants sa
+  q(`SELECT a.id, a.name, sa.fee, sa.solo FROM shooting_assistants sa
        JOIN assistants a ON a.id = sa.assistant_id
       WHERE sa.shooting_id = ? ORDER BY a.name`).all(id);
 
@@ -246,29 +258,33 @@ export const setClaimStatus = (id, status, shootingId = null) =>
 export const shootingOn = (projectId, date) =>
   q('SELECT * FROM shootings WHERE project_id = ? AND date = ? ORDER BY id LIMIT 1').get(projectId, date);
 
-export const attachAssistant = (shootingId, assistantId, fee) =>
-  q('INSERT INTO shooting_assistants (shooting_id, assistant_id, fee) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
-    .run(shootingId, assistantId, fee);
+export const attachAssistant = (shootingId, assistantId, fee, solo = false) =>
+  q('INSERT INTO shooting_assistants (shooting_id, assistant_id, fee, solo) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING')
+    .run(shootingId, assistantId, fee, solo ? 1 : 0);
 
 export const updateShootingMoney = (id, { amount, rent, paid }) =>
   q('UPDATE shootings SET amount = ?, rent = ?, paid = ? WHERE id = ?').run(amount, rent, paid ? 1 : 0, id);
 
-/* --- lateness --- */
-export const addLateness = (assistantId, date) =>
-  q('INSERT INTO lateness (assistant_id, date, created_at) VALUES (?, ?, ?)')
+/* --- discipline marks: kechikish + qo'pol xato --- */
+const MARK_TABLES = { late: 'lateness', mistake: 'mistakes' };
+const table = (kind) => MARK_TABLES[kind] ?? (() => { throw new Error(`unknown mark: ${kind}`); })();
+
+export const addMark = (kind, assistantId, date) =>
+  q(`INSERT INTO ${table(kind)} (assistant_id, date, created_at) VALUES (?, ?, ?)`)
     .run(assistantId, date, now()).lastInsertRowid;
 
-export const deleteLateness = (id) => q('DELETE FROM lateness WHERE id = ?').run(id);
+export const deleteMark = (kind, id) => q(`DELETE FROM ${table(kind)} WHERE id = ?`).run(id);
 
-/** One row per assistant for the month, with the dates they were late. */
-export const latenessByMonth = (month) =>
+/** One row per assistant for the month, with the dates. */
+export const marksByMonth = (kind, month) =>
   q(`SELECT a.id, a.name, a.active,
-            COUNT(l.id) AS count,
-            GROUP_CONCAT(l.date) AS dates
+            COUNT(m.id) AS count,
+            GROUP_CONCAT(m.date) AS dates
        FROM assistants a
-       LEFT JOIN lateness l ON l.assistant_id = a.id AND substr(l.date, 1, 7) = ?
+       LEFT JOIN ${table(kind)} m ON m.assistant_id = a.id AND substr(m.date, 1, 7) = ?
       GROUP BY a.id
       ORDER BY count DESC, a.name`).all(month);
 
-export const latenessOf = (assistantId, month) =>
-  q('SELECT * FROM lateness WHERE assistant_id = ? AND substr(date, 1, 7) = ? ORDER BY date').all(assistantId, month);
+export const marksOf = (kind, assistantId, month) =>
+  q(`SELECT * FROM ${table(kind)} WHERE assistant_id = ? AND substr(date, 1, 7) = ? ORDER BY date`)
+    .all(assistantId, month);

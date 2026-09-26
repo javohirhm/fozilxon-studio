@@ -159,26 +159,36 @@ const projectCards = (projects, maxIncome) => projects.length ? `<div class="pro
     </div>
   </a>`).join('')}</div>` : '<div class="empty-note">Loyiha yo\'q. Botda «➕ Yangi loyiha» tugmasini bosing.</div>';
 
-/** Lateness for one month: who was late, how often, on which days. */
-function latenessCard(month, rows) {
-  const late = rows.filter((r) => r.count);
-  const total = late.reduce((s, r) => s + r.count, 0);
-  const max = Math.max(...late.map((r) => r.count), 1);
+/** One month of discipline marks: lateness and gross mistakes, side by side. */
+function marksBlock(icon, label, rows, tone) {
+  const marked = rows.filter((r) => r.count);
+  const total = marked.reduce((s, r) => s + r.count, 0);
+  const max = Math.max(...marked.map((r) => r.count), 1);
+  return `
+    <div class="mark-block">
+      <div class="mark-title"><span><span class="ic">${icon}</span>${label}</span><span class="legendless">jami ${total} marta</span></div>
+      ${marked.length ? `<div class="bars-h">${marked.map((r) => `
+        <div class="r">
+          <span>${esc(r.name)}</span>
+          <span class="track"><i class="${tone}" style="width:${(r.count / max) * 100}%"></i></span>
+          <span class="v">${r.count}</span>
+        </div>
+        <div class="late-days">${r.dates.split(',').sort().map((d) => `<span class="chip">${dateUz(d, false)}</span>`).join('')}</div>
+      `).join('')}</div>` : '<div class="empty-note">Bu oyda yo\'q.</div>'}
+    </div>`;
+}
+
+function marksCard(month, data) {
   return `
     <div class="cal-head">
       <button class="navbtn" data-late="prev">‹</button>
       <span class="mname">${monthLabel(month)}</span>
       <button class="navbtn" data-late="next">›</button>
-      <span class="legendless">jami ${total} marta</span>
     </div>
-    ${late.length ? `<div class="bars-h">${late.map((r) => `
-      <div class="r">
-        <span>${esc(r.name)}</span>
-        <span class="track"><i class="warn" style="width:${(r.count / max) * 100}%"></i></span>
-        <span class="v">${r.count}</span>
-      </div>
-      <div class="late-days">${r.dates.split(',').sort().map((d) => `<span class="chip">${dateUz(d, false)}</span>`).join('')}</div>
-    `).join('')}</div>` : '<div class="empty-note">Bu oyda kechikish yo\'q.</div>'}`;
+    <div class="marks">
+      ${marksBlock('⏰', 'Kechikish', data.late, 'warn')}
+      ${marksBlock('⚠️', 'Qo\'pol xato', data.mistakes, 'bad')}
+    </div>`;
 }
 
 /* ---------- views ---------- */
@@ -294,9 +304,10 @@ async function viewCalendar(ym = thisMonth(), project = 'all') {
 
 async function viewAssistants() {
   const month = thisMonth();
-  const [d, late] = await Promise.all([api('/api/overview'), api(`/api/lateness?month=${month}`)]);
+  const [d, marks] = await Promise.all([api('/api/overview'), api(`/api/marks?month=${month}`)]);
   const a = d.assistants;
-  const lateBy = new Map(late.rows.map((r) => [r.id, r.count]));
+  const lateBy = new Map(marks.late.map((r) => [r.id, r.count]));
+  const missBy = new Map(marks.mistakes.map((r) => [r.id, r.count]));
   const worked = a.filter((x) => x.shootings > 0);
   const totalPaid = a.reduce((s, x) => s + x.earned, 0);
   return `
@@ -308,8 +319,8 @@ async function viewAssistants() {
       ${tile('Ishtiroklar', a.reduce((s, x) => s + x.shootings, 0), '', 'съёмка')}
     </div>
     <div class="card" id="late" data-month="${month}" style="margin-bottom:22px">
-      <h2><span class="ic">⏰</span>Kechikishlar</h2><div class="hint">Oy bo'yicha, botda belgilanadi</div>
-      <div id="late-body">${latenessCard(month, late.rows)}</div>
+      <h2><span class="ic">📋</span>Intizom</h2><div class="hint">Oy bo'yicha, botda belgilanadi</div>
+      <div id="late-body">${marksCard(month, marks)}</div>
     </div>
     <div class="card" style="margin-bottom:22px"><h2>Ishlagan puli</h2><div class="hint">Jami to'lov, so'm</div>
       ${worked.length ? barsH(worked.map((x) => ({
@@ -321,7 +332,7 @@ async function viewAssistants() {
       ${a.length ? `<div class="tbl"><table>
         <thead><tr><th>Ism</th><th class="num">Stavka</th><th class="num">Съёмка</th>
           <th class="num">Ishlagan puli</th><th class="num">O'rtacha</th><th class="num">Kechikish</th>
-          <th>Oxirgi ish</th><th>Holat</th></tr></thead>
+          <th class="num">Qo'pol xato</th><th>Oxirgi ish</th><th>Holat</th></tr></thead>
         <tbody>${a.map((x) => `<tr>
           <td><b>${esc(x.name)}</b></td>
           <td class="num">${num(x.rate)}</td>
@@ -329,6 +340,7 @@ async function viewAssistants() {
           <td class="num"><b>${num(x.earned)}</b></td>
           <td class="num">${num(x.shootings ? x.earned / x.shootings : 0)}</td>
           <td class="num">${lateBy.get(x.id) ? `<b class="late-n">${lateBy.get(x.id)}</b>` : '—'}</td>
+          <td class="num">${missBy.get(x.id) ? `<b class="miss-n">${missBy.get(x.id)}</b>` : '—'}</td>
           <td>${x.last_date ? dateUz(x.last_date, false) : '—'}</td>
           <td><span class="chip ${x.active ? 'paid' : ''}">${x.active ? 'faol' : 'faol emas'}</span></td>
         </tr>`).join('')}</tbody></table></div>` : '<div class="empty-note">Yordamchi yo\'q.</div>'}
@@ -398,9 +410,9 @@ function wireLateness() {
   for (const b of box.querySelectorAll('[data-late]')) {
     b.onclick = async () => {
       const ym = shiftMonth(box.dataset.month, b.dataset.late === 'next' ? 1 : -1);
-      const d = await api(`/api/lateness?month=${ym}`);
+      const d = await api(`/api/marks?month=${ym}`);
       box.dataset.month = ym;
-      document.getElementById('late-body').innerHTML = latenessCard(ym, d.rows);
+      document.getElementById('late-body').innerHTML = marksCard(ym, d);
       wireLateness();
     };
   }
