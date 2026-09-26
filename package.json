@@ -1,0 +1,16 @@
+{
+  "name": "fozilxon-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram bot (kirish) + web sayt (natija) - videograf loyihalari, съёмкалар va yordamchilar hisobi",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node src/index.js",
+    "seed": "node src/seed.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "grammy": "^1.32.0"
+  }
+}

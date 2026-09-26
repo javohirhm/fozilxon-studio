@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fozilxon Studio — kirish</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-card" id="f">
+    <h1>Fozilxon Studio</h1>
+    <p>Loyihalar va съёмкалар hisoboti</p>
+    <label for="p">Parol</label>
+    <input id="p" type="password" autocomplete="current-password" autofocus required>
+    <button class="btn" type="submit">Kirish</button>
+    <div class="error" id="e"></div>
+  </form>
+</div>
+<script>
+  const f = document.getElementById('f'), e = document.getElementById('e');
+  f.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    e.textContent = '';
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: document.getElementById('p').value }),
+    });
+    if (r.ok) location.href = '/';
+    else e.textContent = (await r.json().catch(() => ({}))).error || 'Kirish amalga oshmadi';
+  });
+</script>
+</body>
+</html>
