@@ -265,6 +265,20 @@ export const attachAssistant = (shootingId, assistantId, fee, solo = false) =>
 export const updateShootingMoney = (id, { amount, rent, paid }) =>
   q('UPDATE shootings SET amount = ?, rent = ?, paid = ? WHERE id = ?').run(amount, rent, paid ? 1 : 0, id);
 
+/** Patch only the fields that were passed. */
+export function updateShooting(id, fields) {
+  const cols = ['date', 'note', 'amount', 'rent', 'paid'].filter((c) => fields[c] !== undefined);
+  if (!cols.length) return;
+  const vals = cols.map((c) => (c === 'paid' ? (fields[c] ? 1 : 0) : fields[c]));
+  q(`UPDATE shootings SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...vals, id);
+}
+
+export const detachAssistant = (shootingId, assistantId) =>
+  q('DELETE FROM shooting_assistants WHERE shooting_id = ? AND assistant_id = ?').run(shootingId, assistantId);
+
+export const renameAssistant = (id, name) =>
+  q('UPDATE assistants SET name = ? WHERE id = ?').run(name, id);
+
 /* --- discipline marks: kechikish + qo'pol xato --- */
 const MARK_TABLES = { late: 'lateness', mistake: 'mistakes' };
 const table = (kind) => MARK_TABLES[kind] ?? (() => { throw new Error(`unknown mark: ${kind}`); })();
@@ -274,6 +288,12 @@ export const addMark = (kind, assistantId, date) =>
     .run(assistantId, date, now()).lastInsertRowid;
 
 export const deleteMark = (kind, id) => q(`DELETE FROM ${table(kind)} WHERE id = ?`).run(id);
+
+/** Remove one mark for that person on that day (the newest, if several). */
+export const deleteMarkOn = (kind, assistantId, date) =>
+  q(`DELETE FROM ${table(kind)} WHERE id = (
+       SELECT id FROM ${table(kind)} WHERE assistant_id = ? AND date = ? ORDER BY id DESC LIMIT 1)`)
+    .run(assistantId, date).changes;
 
 /** One row per assistant for the month, with the dates. */
 export const marksByMonth = (kind, month) =>

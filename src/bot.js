@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard, Keyboard } from 'grammy';
 import * as db from './db.js';
+import { ask, resetSession, aiReady } from './ai.js';
 import { money, num, dateUz, monthName, todayISO, parseDate, parseMoney } from './format.js';
 
 const OWNER_ID = process.env.BOT_OWNER_ID ? Number(process.env.BOT_OWNER_ID) : null;
@@ -479,17 +480,57 @@ export function createBot(token) {
     return send(ctx, shootingView(shootingId));
   }
 
+  /* ---------- AI chat: plain words and voice notes ---------- */
+  async function handleAI(ctx, { text, voice }) {
+    if (!aiReady()) {
+      return ctx.reply('AI hali ulanmagan (.env → GEMINI_API_KEY). Hozircha menyudan foydalaning 👇',
+        { reply_markup: mainMenu });
+    }
+    await ctx.replyWithChatAction('typing').catch(() => {});
+    const typing = setInterval(() => ctx.replyWithChatAction('typing').catch(() => {}), 5000);
+    try {
+      let audio = null;
+      if (voice) {
+        const file = await ctx.api.getFile(voice.file_id);
+        const res = await fetch(`https://api.telegram.org/file/bot${token}/${file.file_path}`);
+        if (!res.ok) throw new Error(`ovozli xabarni yuklab bo'lmadi (${res.status})`);
+        audio = {
+          data: Buffer.from(await res.arrayBuffer()).toString('base64'),
+          mimeType: voice.mime_type || 'audio/ogg',
+        };
+      }
+      const { text: answer, actions } = await ask(ctx.from.id, { text, audio });
+      if (actions.length) console.log('[ai]', actions.map((a) => `${a.name}${a.ok ? '' : '!'}`).join(', '));
+      await ctx.reply(answer || '…', { reply_markup: mainMenu });
+    } catch (e) {
+      console.error('[ai]', e.message);
+      await ctx.reply('AI javob bermadi 😕 Birozdan keyin qayta urinib ko\'ring yoki menyudan foydalaning.',
+        { reply_markup: mainMenu });
+    } finally {
+      clearInterval(typing);
+    }
+  }
+
   /* ---------- commands & menu buttons ---------- */
   bot.command('start', async (ctx) => {
     clearWiz();
     await ctx.reply(
-      `Salom, <b>Fozilxon</b>! 🎬\n\nBu bot orqali loyihalar va съёмкаларni yozib borasiz.\n` +
-      `Natijani saytda ko'rasiz: ${SITE_URL}\n\nQuyidagi menyudan boshlang 👇`,
+      `Salom, <b>Fozilxon</b>! 🎬\n\n` +
+      `Menga oddiy gapirib yoki yozib bering — o'zim yozib qo'yaman:\n` +
+      `<i>«bugun Aziz to'yida ishladik, 5 mln oldik, Bekzod ham bor edi»</i>\n` +
+      `<i>«Bekzod bugun kechikdi»</i> · <i>«shu oy qancha ishladik?»</i>\n\n` +
+      `🎙 Ovozli xabar ham yuborsangiz bo'ladi.\n` +
+      `Natijani saytda ko'rasiz: ${SITE_URL}\n\nTugmalar ham joyida 👇`,
       { parse_mode: 'HTML', reply_markup: mainMenu }
     );
   });
 
   bot.command('bekor', async (ctx) => { clearWiz(); await ctx.reply('Bekor qilindi.', { reply_markup: mainMenu }); });
+  bot.command('yangi', async (ctx) => {
+    clearWiz();
+    resetSession(ctx.from.id);
+    await ctx.reply('Suhbat tozalandi 🧹 Yangi mavzudan boshlang.', { reply_markup: mainMenu });
+  });
   bot.command('menu', async (ctx) => { clearWiz(); await ctx.reply('Menyu 👇', { reply_markup: mainMenu }); });
   bot.command('sayt', (ctx) => ctx.reply(SITE_URL));
 
@@ -723,7 +764,7 @@ export function createBot(token) {
     const text = ctx.message.text.trim();
     if (text.startsWith('/')) return;
     if (inGroup(ctx)) return; // the group only talks to the bot through commands and buttons
-    if (!wiz) return ctx.reply('Menyudan tanlang 👇', { reply_markup: mainMenu });
+    if (!wiz) return handleAI(ctx, { text });
 
     if (wiz.flow === 'project') {
       if (!text) return;
@@ -807,6 +848,12 @@ export function createBot(token) {
         }
       }
     }
+  });
+
+  bot.on(['message:voice', 'message:audio'], async (ctx) => {
+    if (inGroup(ctx)) return;
+    clearWiz();
+    await handleAI(ctx, { voice: ctx.message.voice || ctx.message.audio });
   });
 
   bot.catch((err) => console.error('[bot]', err.error ?? err));

@@ -3,9 +3,11 @@
 Telegram bot (**data in**) + website (**data out**) for a videographer's projects,
 shootings, money and assistants. One Node process serves both.
 
-- **Bot (private, him)** — add projects, log each shooting (date, note, amount, rent,
-  paid/unpaid, which assistants took part), manage assistants, approve assistant reports,
-  mark lateness and gross mistakes, browse per-project and overall calendars.
+- **Bot (private, him)** — just talk to it. Typed or spoken, plain Uzbek: Gemini understands
+  and writes it into the database. The old button menus are still there as a fallback: add
+  projects, log each shooting (date, note, amount, rent, paid/unpaid, which assistants took
+  part), manage assistants, approve assistant reports, mark lateness and gross mistakes,
+  browse per-project and overall calendars.
 - **Bot (group, assistants)** — each assistant types `/ishladim` in the team group and taps
   project + day to report that they worked. It lands in his **📥 Arizalar** for approval.
 - **Site** — password-protected dashboard: totals, monthly income charts, project pages,
@@ -56,6 +58,33 @@ a date to remove it. Both are plain counts, nothing is deducted from pay.
 
 In private chat only `BOT_OWNER_ID` is answered; anyone else is ignored.
 
+## AI chat (the main way he uses the bot)
+
+He writes or sends a voice note, and the model does the work. Anything the buttons can do, the
+chat can do — all 25 actions in `src/tools.js` are exposed to it:
+
+```
+bugun Aziz to'yida ishladik, 5 mln oldik, Bekzod ham bor edi
+yo'q, 6 mln edi            → fixes the shooting it just wrote
+yangi loyiha oldik: Korzinka reklama
+Bekzod bugun kechikdi · Sardor qo'pol xato qildi
+Bekzod o'zi bordi, to'lovini ikkilantir
+shu oy qancha ishladik? kim ko'p kechikkan?
+arizalarni ko'rsat · Bekzodnikini tasdiqla
+```
+
+- **Voice messages** go straight to Gemini as audio (`audio/ogg`) — no separate transcriber,
+  and Uzbek/Russian mixed speech is fine.
+- **Deletes always ask first.** The model is required to call `delete_*` without `confirm`,
+  report the warning, and only delete after he says yes.
+- **Context carries over** between messages (server-side, ~2h idle timeout). `/yangi` clears it.
+- Model: `gemini-3.8-flash` (override with `GEMINI_MODEL`). At this volume it costs pennies a
+  month and fits inside the free tier most days.
+- No `GEMINI_API_KEY` → the bot says so once and keeps working through its buttons.
+
+Assistants in the group still use `/ishladim` with buttons — Telegram's privacy mode means the
+bot never sees ordinary group chatter, which also keeps the AI bill to his messages only.
+
 ## Group (assistants report their own work)
 
 1. Add the bot to the team group (an ordinary member is enough — keep BotFather's default
@@ -105,7 +134,10 @@ Backup = copy `data/studio.db` (plus `-wal`/`-shm` if present).
 
 ```
 src/db.js       schema + every query
-src/bot.js      Telegram bot: menus, wizards, calendars
+src/tools.js    the 25 actions the AI can take, name→id resolution, confirm gates
+src/gemini.js   Gemini Interactions API client (text + audio, session recovery)
+src/ai.js       agent loop + system prompt with a live snapshot of the data
+src/bot.js      Telegram bot: AI chat, voice, menus, wizards, calendars
 src/server.js   Express: login, JSON API, static site
 src/index.js    starts both
 public/         index.html · login.html · app.js (router, charts, calendar) · styles.css

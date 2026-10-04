@@ -16,6 +16,7 @@ website together, backed by a single SQLite file. Target: Ubuntu/Debian VPS serv
 | Value | Goes to | Notes |
 |---|---|---|
 | Telegram bot token | `BOT_TOKEN` | from @BotFather → `/newbot` |
+| Gemini API key | `GEMINI_API_KEY` | https://aistudio.google.com/apikey — powers the bot's AI chat and voice messages. Without it the bot still works through its buttons. |
 | Website password | `SITE_PASSWORD` | their choice; the site has no username |
 | Their Telegram user ID | `BOT_OWNER_ID` | if they don't know it, leave empty — step 5 gets it |
 
@@ -61,8 +62,8 @@ sudo cp .env.example .env
 sudo nano .env
 ```
 
-Fill in `BOT_TOKEN`, `SITE_PASSWORD`, `SESSION_SECRET`, `BOT_OWNER_ID` (may stay empty for
-now), and keep:
+Fill in `BOT_TOKEN`, `GEMINI_API_KEY`, `SITE_PASSWORD`, `SESSION_SECRET`, `BOT_OWNER_ID` (may
+stay empty for now), and keep:
 
 ```
 SITE_URL=https://pro.javohirhm.uz
@@ -179,6 +180,8 @@ user wants it.
 | Service restart-loops | `journalctl -u fozilxon -n 50`; usually `.env` unreadable or `data/` not writable by `www-data` |
 | `409 Conflict` in the log | the same `BOT_TOKEN` is polling from somewhere else (a local copy still running) |
 | Bot silent for everyone | `BOT_OWNER_ID` empty or wrong |
+| Bot answers "AI hali ulanmagan" | `GEMINI_API_KEY` missing from `.env`; buttons still work |
+| AI replies "javob bermadi" | check `journalctl -u fozilxon \| grep '\[ai\]'` — usually a bad key, no quota, or no outbound HTTPS to generativelanguage.googleapis.com |
 | Bot silent in the group | `/guruh` was never sent in that group, or the bot isn't a member |
 | Site loads, login always fails | `SITE_PASSWORD` empty (the API says so), or testing over `http://` with `NODE_ENV=production` |
 | 502 from nginx | app not listening — check `systemctl status fozilxon` and that `PORT=3000` matches the proxy |
